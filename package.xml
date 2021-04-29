@@ -7,9 +7,14 @@
   <maintainer email="alfi.maulana.f@gmail.com">Alfi Maulana</maintainer>
   <license>MIT License</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>beine_cpp</depend>
+  <depend>gazebo_ros</depend>
+  <depend>keisan</depend>
+  <depend>rclcpp</depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
   <export>
     <build_type>ament_cmake</build_type>
+    <gazebo_ros plugin_path="${prefix}/plugins" />
   </export>
 </package>
