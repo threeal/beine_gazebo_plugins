@@ -25,7 +25,9 @@
 #include <gazebo/common/Plugin.hh>
 #include <rclcpp/rclcpp.hpp>
 
+#include <map>
 #include <memory>
+#include <string>
 
 namespace beine_gazebo_plugins
 {
@@ -33,6 +35,16 @@ namespace beine_gazebo_plugins
 class LegsPlugin : public gazebo::ModelPlugin
 {
 public:
+  enum Joint
+  {
+    LEFT_HIP_PITCH,
+    LEFT_KNEE_PITCH,
+    LEFT_ANKLE_PITCH,
+    RIGHT_HIP_PITCH,
+    RIGHT_KNEE_PITCH,
+    RIGHT_ANKLE_PITCH
+  };
+
   LegsPlugin();
 
   void Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf);
@@ -40,11 +52,27 @@ public:
 private:
   void Update();
 
+  void MovePosition(const beine_cpp::Position & target_position);
+  void MoveOrientation(const beine_cpp::Orientation & target_orientation);
+
+  void MoveJointsPosition(const std::map<Joint, double> & target_joints_position);
+
   rclcpp::Node::SharedPtr node;
 
   std::shared_ptr<beine_cpp::LegsConsumer> legs_consumer;
 
   gazebo::physics::ModelPtr model;
+
+  std::map<Joint, gazebo::physics::JointPtr> joints;
+
+  std::map<Joint, double> standing_joints_position;
+  std::map<Joint, double> sitting_joints_position;
+
+  double translation_speed;
+  double rotation_speed;
+
+  double joint_force_strength;
+  double joint_force_smoothness;
 
   gazebo::event::ConnectionPtr update_connection;
 };
