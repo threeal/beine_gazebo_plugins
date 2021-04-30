@@ -23,12 +23,37 @@
 #include <gazebo_ros/node.hpp>
 #include <keisan/keisan.hpp>
 
+#include <map>
 #include <memory>
 
 namespace beine_gazebo_plugins
 {
 
 LegsPlugin::LegsPlugin()
+: joints_name({
+    {"left_upper_leg_joint", LEFT_HIP_PITCH},
+    {"left_lower_leg_joint", LEFT_KNEE_PITCH},
+    {"left_foot_joint", LEFT_ANKLE_PITCH},
+    {"right_upper_leg_joint", RIGHT_HIP_PITCH},
+    {"right_lower_leg_joint", RIGHT_KNEE_PITCH},
+    {"right_foot_joint", RIGHT_ANKLE_PITCH}
+  }),
+  standing_joints_position({
+    {LEFT_HIP_PITCH, 0.0},
+    {LEFT_KNEE_PITCH, 0.0},
+    {LEFT_ANKLE_PITCH, 0.0},
+    {RIGHT_HIP_PITCH, 0.0},
+    {RIGHT_KNEE_PITCH, 0.0},
+    {RIGHT_ANKLE_PITCH, 0.0}
+  }),
+  sitting_joints_position({
+    {LEFT_HIP_PITCH, 45.0},
+    {LEFT_KNEE_PITCH, -90.0},
+    {LEFT_ANKLE_PITCH, 45.0},
+    {RIGHT_HIP_PITCH, 45.0},
+    {RIGHT_KNEE_PITCH, -90.0},
+    {RIGHT_ANKLE_PITCH, 45.0}
+  })
 {
 }
 
@@ -43,6 +68,21 @@ void LegsPlugin::Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf)
   // Initialize the model
   this->model = model;
 
+  // Map the simulation joints according to the joint_name
+  for (const auto & joint : model->GetJoints()) {
+    // Skip if joint is fixed (does not have an axis)
+    if ((joint->GetType() & gazebo::physics::Joint::FIXED_JOINT) != 0) {
+      continue;
+    }
+
+    // Find joint index by name
+    const auto & joint_name_pair = joints_name.find(joint->GetName());
+    if (joint_name_pair != joints_name.end()) {
+      joints.emplace(joint_name_pair->second, joint);
+      RCLCPP_INFO_STREAM(node->get_logger(), "Found joint " << joint->GetName() << "!");
+    }
+  }
+
   // Initialize the update connection
   {
     update_connection = gazebo::event::Events::ConnectWorldUpdateBegin(
@@ -55,35 +95,73 @@ void LegsPlugin::Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf)
 
 void LegsPlugin::Update()
 {
-  // Update position
-  {
-    auto pos = model->WorldPose().Pos();
-    auto current = keisan::Point3(pos.X(), pos.Y(), pos.Z());
+  // Move Position and Orientation
+  MovePosition(legs_consumer->get_position());
+  MoveOrientation(legs_consumer->get_orientation());
 
-    auto position = legs_consumer->get_position();
-    auto target = keisan::Point3(position.x, position.y, position.z);
+  // Move joints according to current stance
+  if (legs_consumer->get_stance().is_sitting()) {
+    MoveJointsPosition(sitting_joints_position);
+  } else {
+    MoveJointsPosition(standing_joints_position);
+  }
+}
 
-    auto velocity = target - current;
-    if (velocity.magnitude() > 1.0) {
-      velocity = velocity.normalize();
-    }
+void LegsPlugin::MovePosition(const beine_cpp::Position & target_position)
+{
+  // Get current simulation position
+  const auto & pos = model->WorldPose().Pos();
+  auto current = keisan::Point3(pos.X(), pos.Y(), pos.Z());
 
-    velocity *= 5.0;
+  // Get target position
+  auto target = keisan::Point3(target_position.x, target_position.y, target_position.z);
 
-    model->SetLinearVel({velocity.x, velocity.y, velocity.z});
+  // Calculate velocity based on current and target position
+  auto velocity = target - current;
+  if (velocity.magnitude() > 1.0) {
+    velocity = velocity.normalize();
   }
 
-  // Update orientation
-  {
-    auto rot = model->WorldPose().Rot();
-    auto current = rot.Yaw();
+  velocity *= 5.0;
 
-    auto orientation = legs_consumer->get_orientation();
-    auto target = keisan::deg_to_rad(orientation.z);
+  // Modify the simulation velocity
+  model->SetLinearVel({velocity.x, velocity.y, velocity.z});
+}
 
-    auto velocity = keisan::delta_rad(current, target) * 5.0;
+void LegsPlugin::MoveOrientation(const beine_cpp::Orientation & target_orientation)
+{
+  // Get current simulation yaw orientation
+  auto rot = model->WorldPose().Rot();
+  auto current = rot.Yaw();
 
-    model->SetAngularVel({0.0, 0.0, velocity});
+  // Get target yaw orientation
+  auto target = keisan::deg_to_rad(target_orientation.z);
+
+  // Calculate velocity based on current and target yaw orientation
+  auto velocity = keisan::delta_rad(current, target) * 5.0;
+
+  // Modify the simulation velocity
+  model->SetAngularVel({0.0, 0.0, velocity});
+}
+
+void LegsPlugin::MoveJointsPosition(const std::map<Joint, double> & target_joints_position)
+{
+  // For each simulation joint
+  for (const auto & joint_pair : joints) {
+    const auto & target_pair = target_joints_position.find(joint_pair.first);
+    if (target_pair != target_joints_position.end()) {
+      // Get current simulation joint position
+      auto current = joint_pair.second->Position();
+
+      // Get Target joint position
+      auto target = keisan::deg_to_rad(target_pair->second);
+
+      // Calculate force based on current and target joint position
+      auto force = keisan::delta_rad(current, target) * 200.0;
+
+      // Modify the simulation joint force on axis 0
+      joint_pair.second->SetForce(0, force);
+    }
   }
 }
 
