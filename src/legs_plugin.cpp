@@ -23,6 +23,7 @@
 #include <gazebo_ros/node.hpp>
 #include <keisan/keisan.hpp>
 
+#include <algorithm>
 #include <map>
 #include <memory>
 
@@ -111,10 +112,10 @@ void LegsPlugin::MovePosition(const beine_cpp::Position & target_position)
 {
   // Get current simulation position
   const auto & pos = model->WorldPose().Pos();
-  auto current = keisan::Point3(pos.X(), pos.Y(), pos.Z());
+  auto current = keisan::Point2(pos.X(), pos.Y());
 
   // Get target position
-  auto target = keisan::Point3(target_position.x, target_position.y, target_position.z);
+  auto target = keisan::Point2(target_position.x, target_position.y);
 
   // Calculate velocity based on current and target position
   auto velocity = target - current;
@@ -122,10 +123,13 @@ void LegsPlugin::MovePosition(const beine_cpp::Position & target_position)
     velocity = velocity.normalize();
   }
 
-  velocity *= 5.0;
+  velocity *= 2.0;
+
+  // Keep the gravity
+  auto gravity = std::min(model->WorldLinearVel().Z(), 0.0);
 
   // Modify the simulation velocity
-  model->SetLinearVel({velocity.x, velocity.y, velocity.z});
+  model->SetLinearVel({velocity.x, velocity.y, gravity});
 }
 
 void LegsPlugin::MoveOrientation(const beine_cpp::Orientation & target_orientation)
@@ -138,10 +142,21 @@ void LegsPlugin::MoveOrientation(const beine_cpp::Orientation & target_orientati
   auto target = keisan::deg_to_rad(target_orientation.z);
 
   // Calculate velocity based on current and target yaw orientation
-  auto velocity = keisan::delta_rad(current, target) * 5.0;
+  auto velocity = keisan::delta_rad(current, target) * 2.0;
 
   // Modify the simulation velocity
   model->SetAngularVel({0.0, 0.0, velocity});
+
+  // Lock pitch and roll rotations
+  {
+    auto pose = model->RelativePose();
+    auto rot = pose.Rot();
+
+    rot.Euler(0.0, 0.0, rot.Yaw());
+    pose.Set(pose.Pos(), rot);
+
+    model->SetRelativePose(pose);
+  }
 }
 
 void LegsPlugin::MoveJointsPosition(const std::map<Joint, double> & target_joints_position)
@@ -157,7 +172,14 @@ void LegsPlugin::MoveJointsPosition(const std::map<Joint, double> & target_joint
       auto target = keisan::deg_to_rad(target_pair->second);
 
       // Calculate force based on current and target joint position
-      auto force = keisan::delta_rad(current, target) * 200.0;
+      auto delta = keisan::delta_rad(current, target);
+
+      // This equation cause the graph to increase slowly the larger the x is
+      // see the graph of x ^ 1/2.
+      auto force = std::pow(std::abs(delta), 0.5) * 1000.0;
+      if (delta < 0) {
+        force = -force;
+      }
 
       // Modify the simulation joint force on axis 0
       joint_pair.second->SetForce(0, force);
