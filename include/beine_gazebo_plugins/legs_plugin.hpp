@@ -63,13 +63,18 @@ private:
 
   gazebo::physics::ModelPtr model;
 
-  std::map<std::string, Joint> joints_name;
   std::map<Joint, gazebo::physics::JointPtr> joints;
-
-  gazebo::event::ConnectionPtr update_connection;
 
   std::map<Joint, double> standing_joints_position;
   std::map<Joint, double> sitting_joints_position;
+
+  double translation_speed;
+  double rotation_speed;
+
+  double joint_force_strength;
+  double joint_force_smoothness;
+
+  gazebo::event::ConnectionPtr update_connection;
 };
 
 }  // namespace beine_gazebo_plugins

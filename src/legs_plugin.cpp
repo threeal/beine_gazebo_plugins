@@ -26,20 +26,13 @@
 #include <algorithm>
 #include <map>
 #include <memory>
+#include <string>
 
 namespace beine_gazebo_plugins
 {
 
 LegsPlugin::LegsPlugin()
-: joints_name({
-    {"left_upper_leg_joint", LEFT_HIP_PITCH},
-    {"left_lower_leg_joint", LEFT_KNEE_PITCH},
-    {"left_foot_joint", LEFT_ANKLE_PITCH},
-    {"right_upper_leg_joint", RIGHT_HIP_PITCH},
-    {"right_lower_leg_joint", RIGHT_KNEE_PITCH},
-    {"right_foot_joint", RIGHT_ANKLE_PITCH}
-  }),
-  standing_joints_position({
+: standing_joints_position({
     {LEFT_HIP_PITCH, 0.0},
     {LEFT_KNEE_PITCH, 0.0},
     {LEFT_ANKLE_PITCH, 0.0},
@@ -54,7 +47,11 @@ LegsPlugin::LegsPlugin()
     {RIGHT_HIP_PITCH, 45.0},
     {RIGHT_KNEE_PITCH, -90.0},
     {RIGHT_ANKLE_PITCH, 45.0}
-  })
+  }),
+  translation_speed(2.0),
+  rotation_speed(2.0),
+  joint_force_strength(1000.0),
+  joint_force_smoothness(0.5)
 {
 }
 
@@ -69,19 +66,76 @@ void LegsPlugin::Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf)
   // Initialize the model
   this->model = model;
 
-  // Map the simulation joints according to the joint_name
-  for (const auto & joint : model->GetJoints()) {
-    // Skip if joint is fixed (does not have an axis)
-    if ((joint->GetType() & gazebo::physics::Joint::FIXED_JOINT) != 0) {
-      continue;
+  // Initialize the joints
+  {
+    // Load joints name from the SDF
+    std::map<std::string, Joint> joints_name;
+    {
+      // Map of joint enum and SDF parameter
+      std::map<Joint, std::string> sdfs_name = {
+        {LEFT_HIP_PITCH, "left_hip_pitch_joint"},
+        {LEFT_KNEE_PITCH, "left_knee_pitch_joint"},
+        {LEFT_ANKLE_PITCH, "left_ankle_pitch_joint"},
+        {RIGHT_HIP_PITCH, "right_hip_pitch_joint"},
+        {RIGHT_KNEE_PITCH, "right_knee_pitch_joint"},
+        {RIGHT_ANKLE_PITCH, "right_ankle_pitch_joint"}
+      };
+
+      // Add each SDF parameter's value to joints name map
+      for (const auto & sdf_name_pair : sdfs_name) {
+        auto joint_name = sdf->Get<std::string>(sdf_name_pair.second, sdf_name_pair.second).first;
+        joints_name.emplace(joint_name, sdf_name_pair.first);
+      }
     }
 
-    // Find joint index by name
-    const auto & joint_name_pair = joints_name.find(joint->GetName());
-    if (joint_name_pair != joints_name.end()) {
-      joints.emplace(joint_name_pair->second, joint);
-      RCLCPP_INFO_STREAM(node->get_logger(), "Found joint " << joint->GetName() << "!");
+    // Map the simulation joints according to the joint_name
+    for (const auto & joint : model->GetJoints()) {
+      // Skip if joint is fixed (does not have an axis)
+      if ((joint->GetType() & gazebo::physics::Joint::FIXED_JOINT) != 0) {
+        continue;
+      }
+
+      // Find joint index by name
+      const auto & joint_name_pair = joints_name.find(joint->GetName());
+      if (joint_name_pair != joints_name.end()) {
+        joints.emplace(joint_name_pair->second, joint);
+      }
     }
+
+    // Log joints result
+    if (joints.size() > 0) {
+      if (joints.size() < 6) {
+        RCLCPP_WARN(node->get_logger(), "Some joint not found!");
+      }
+
+      std::stringstream ss;
+
+      ss << "\nFound joints:";
+      for (const auto & joint : joints) {
+        ss << "\n- " << joint.second->GetName();
+      }
+
+      RCLCPP_INFO(node->get_logger(), ss.str());
+    } else {
+      RCLCPP_WARN(node->get_logger(), "No joints found!");
+    }
+  }
+
+  // Load parameters from the SDF
+  {
+    translation_speed = sdf->Get<double>("translation_speed", translation_speed).first;
+    rotation_speed = sdf->Get<double>("rotation_speed", rotation_speed).first;
+    joint_force_strength = sdf->Get<double>("joint_force_strength", joint_force_strength).first;
+
+    joint_force_smoothness = sdf->Get<double>(
+      "joint_force_smoothness", joint_force_smoothness).first;
+
+    RCLCPP_INFO_STREAM(
+      node->get_logger(), "\nUsing the following parameters:" <<
+        "\n- translation_speed\t: " << translation_speed <<
+        "\n- rotation_speed\t\t: " << rotation_speed <<
+        "\n- joint_force_strength\t: " << joint_force_strength <<
+        "\n- joint_force_smoothness\t: " << joint_force_smoothness);
   }
 
   // Initialize the update connection
@@ -123,7 +177,7 @@ void LegsPlugin::MovePosition(const beine_cpp::Position & target_position)
     velocity = velocity.normalize();
   }
 
-  velocity *= 2.0;
+  velocity *= translation_speed;
 
   // Keep the gravity
   auto gravity = std::min(model->WorldLinearVel().Z(), 0.0);
@@ -142,7 +196,7 @@ void LegsPlugin::MoveOrientation(const beine_cpp::Orientation & target_orientati
   auto target = keisan::deg_to_rad(target_orientation.z);
 
   // Calculate velocity based on current and target yaw orientation
-  auto velocity = keisan::delta_rad(current, target) * 2.0;
+  auto velocity = keisan::delta_rad(current, target) * rotation_speed;
 
   // Modify the simulation velocity
   model->SetAngularVel({0.0, 0.0, velocity});
@@ -152,6 +206,7 @@ void LegsPlugin::MoveOrientation(const beine_cpp::Orientation & target_orientati
     auto pose = model->RelativePose();
     auto rot = pose.Rot();
 
+    // Only keep the yaw rotation
     rot.Euler(0.0, 0.0, rot.Yaw());
     pose.Set(pose.Pos(), rot);
 
@@ -176,7 +231,7 @@ void LegsPlugin::MoveJointsPosition(const std::map<Joint, double> & target_joint
 
       // This equation cause the graph to increase slowly the larger the x is
       // see the graph of x ^ 1/2.
-      auto force = std::pow(std::abs(delta), 0.5) * 1000.0;
+      auto force = std::pow(std::abs(delta), joint_force_smoothness) * joint_force_strength;
       if (delta < 0) {
         force = -force;
       }
