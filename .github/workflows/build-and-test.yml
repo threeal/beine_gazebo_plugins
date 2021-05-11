@@ -14,5 +14,5 @@ jobs:
         uses: ichiro-its/ros2-ci@v1.0.0
         with:
           ros2-distro: foxy
-          apt-packages: ros-foxy-gazebo-ros
-          external-repos: threeal/beine ichiro-its/keisan#v0.2.0
+          pre-install: sudo apt update && sudo apt install -y curl && curl -s http://repository.ichiro-its.org/debian/setup.bash | bash -s
+          apt-packages: ros-foxy-beine-cpp ros-foxy-gazebo-ros ros-foxy-keisan

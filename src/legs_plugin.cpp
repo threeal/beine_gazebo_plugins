@@ -61,7 +61,12 @@ void LegsPlugin::Load(gazebo::physics::ModelPtr model, sdf::ElementPtr sdf)
   node = gazebo_ros::Node::Get(sdf);
 
   // Initialize the legs consumer
-  legs_consumer = std::make_shared<beine_cpp::LegsConsumer>(node);
+  {
+    beine_cpp::LegsConsumer::Options options;
+    options.legs_prefix = sdf->Get<std::string>("legs_prefix", options.legs_prefix).first;
+
+    legs_consumer = std::make_shared<beine_cpp::LegsConsumer>(node, options);
+  }
 
   // Initialize the model
   this->model = model;
