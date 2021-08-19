@@ -1,18 +1,25 @@
 name: Build and Test
 on:
+  workflow_dispatch:
   pull_request:
-    branches: [ main ]
+    branches: [main]
   push:
-    branches: [ main ]
+    branches: [main]
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checking out
+      - name: Checkout this repository
         uses: actions/checkout@v2.3.4
-      - name: Building and testing
-        uses: ichiro-its/ros2-ci@v1.0.0
         with:
-          ros2-distro: foxy
-          pre-install: sudo apt update && sudo apt install -y curl && curl -s http://repository.ichiro-its.org/debian/setup.bash | bash -s
-          apt-packages: ros-foxy-beine-cpp ros-foxy-gazebo-ros ros-foxy-keisan
+          path: beine_gazebo_plugins
+
+      - name: Add Debian repositories and rosdep sources list
+        run: |
+          sudo apt update && sudo apt install curl
+          curl -s http://repository.ichiro-its.org/debian/setup-nightly.bash | bash -s
+          curl -s http://repository.ichiro-its.org/debian/setup-threeal.bash | bash -s
+          curl -s http://repository.ichiro-its.org/rosdep/setup.bash | bash -s
+
+      - name: Build and test workspace
+        uses: ichiro-its/ros2-build-and-test-action@main
