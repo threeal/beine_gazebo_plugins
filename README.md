@@ -10,4 +10,4 @@ This package provides a [Gazebo](http://gazebosim.org/) simulation's plugins imp
 
 ## License
 
-This project is maintained by [Alfi Maulana](https://github.com/threeal) and licensed under the [MIT License](./LICENSE).
+This project is licensed under the [MIT License](./LICENSE).

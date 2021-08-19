@@ -1,0 +1,48 @@
+name: Deploy Debian
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  deploy-debian:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v2.3.4
+        with:
+          path: beine_gazebo_plugins
+
+      - name: Add Debian repositories and rosdep sources list
+        run: |
+          sudo apt update && sudo apt install curl
+          curl -s http://repository.ichiro-its.org/debian/setup-nightly.bash | bash -s
+          curl -s http://repository.ichiro-its.org/debian/setup-threeal.bash | bash -s
+          curl -s http://repository.ichiro-its.org/rosdep/setup.bash | bash -s
+
+      - name: Build Debian package
+        uses: ichiro-its/ros2-build-debian-action@main
+        with:
+          unique-version: true
+
+      - name: Deploy Debian package to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASS }}
+          source: "package/*.deb"
+          target: "~/temp/threeal/beine_gazebo_plugins/"
+          rm: true
+
+      - name: Prepare Debian package in the server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASS }}
+          script: |
+            cd ~/repository/debian
+            reprepro includedeb threeal ~/temp/threeal/beine_gazebo_plugins/package/*.deb
+            rm -rf ~/temp/threeal/beine_gazebo_plugins/
