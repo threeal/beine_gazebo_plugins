@@ -238,7 +238,8 @@ void LegsPlugin::MoveJointsPosition(const std::map<Joint, double> & target_joint
 
       // This equation cause the graph to increase slowly the larger the x is
       // see the graph of x ^ 1/2.
-      auto force = ksn::sign(delta) * std::pow(std::abs(delta.radian()), joint_force_smoothness) * joint_force_strength;
+      auto force = ksn::sign(delta) *
+        std::pow(std::abs(delta.radian()), joint_force_smoothness) * joint_force_strength;
 
       // Modify the simulation joint force on axis 0
       joint_pair.second->SetForce(0, force);
